@@ -1,0 +1,6 @@
+# ninja log v5
+1	1692	1763588549024327674	/home/edoruk/OccMamba/projects/occ_plugin/occupancy/dense_heads/localagg_prob_fast/build/temp.linux-x86_64-3.9/src/forward.o	fbdfff1a581daca6
+1	1754	1763588549085326718	/home/edoruk/OccMamba/projects/occ_plugin/occupancy/dense_heads/localagg_prob_fast/build/temp.linux-x86_64-3.9/src/backward.o	7c6b79177c297653
+0	15346	1763588562584116180	/home/edoruk/OccMamba/projects/occ_plugin/occupancy/dense_heads/localagg_prob_fast/build/temp.linux-x86_64-3.9/ext.o	c1ea1bc78f453f27
+0	39542	1763588586867743216	/home/edoruk/OccMamba/projects/occ_plugin/occupancy/dense_heads/localagg_prob_fast/build/temp.linux-x86_64-3.9/local_aggregate.o	eabd130dfa401cd5
+0	43203	1763588590524687678	/home/edoruk/OccMamba/projects/occ_plugin/occupancy/dense_heads/localagg_prob_fast/build/temp.linux-x86_64-3.9/src/aggregator_impl.o	5b93f0e31c93251f
