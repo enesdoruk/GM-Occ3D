@@ -74,7 +74,8 @@ class GaussianLifter(BaseLifter):
         )
 
     def init_weights(self):
-        self.anchor.data = self.anchor.data.new_tensor(self.anchor_init)
+        # self.anchor.data = self.anchor.data.new_tensor(self.anchor_init)
+        self.anchor.data = self.anchor.data.clone().detach().requires_grad_(self.anchor.requires_grad)
         if self.instance_feature.requires_grad:
             torch.nn.init.xavier_uniform_(self.instance_feature.data, gain=1)
 

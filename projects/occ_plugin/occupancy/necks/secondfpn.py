@@ -4,10 +4,10 @@ from mmcv.cnn import build_conv_layer, build_norm_layer, build_upsample_layer
 from mmcv.runner import BaseModule, auto_fp16
 from torch import nn as nn
 
-from mmdet.models import NECKS
+from mmengine.registry import MODELS
 
 
-@NECKS.register_module()
+@MODELS.register_module()
 class SECONDFPN(BaseModule):
     """FPN used in SECOND/PointPillars/PartA2/MVXNet.
 

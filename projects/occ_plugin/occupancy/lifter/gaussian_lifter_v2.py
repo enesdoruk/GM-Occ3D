@@ -9,10 +9,10 @@ from einops import reduce
 
 
 try:
-    from pointops import farthest_point_sampling
-except:
-    print("farthest_point_sampling import error.")
-
+    from projects.occ_plugin.occupancy.lifter.pointops.functions.pointops import furthestsampling as farthest_point_sampling
+except ImportError as e:
+    print(f"CRITICAL IMPORT ERROR: {e}")
+    raise e
 
 
 def sample_discrete_distribution(
@@ -20,10 +20,6 @@ def sample_discrete_distribution(
     num_samples: int,
     eps: float = torch.finfo(torch.float32).eps,
 ):
-# tuple[
-#     Int64[Tensor, "*batch sample"],  # index
-#     Float[Tensor, "*batch sample"],  # probability density
-# ]
     *batch, bucket = pdf.shape
     normalized_pdf = pdf / (eps + reduce(pdf, "... bucket -> ... ()", "sum"))
     cdf = normalized_pdf.cumsum(dim=-1)
@@ -37,10 +33,6 @@ def gather_discrete_topk(
     num_samples: int,
     eps: float = torch.finfo(torch.float32).eps,
 ):
-    # tuple[
-    #     Int64[Tensor, "*batch sample"],  # index
-    #     Float[Tensor, "*batch sample"],  # probability density
-    # ]
     normalized_pdf = pdf / (eps + reduce(pdf, "... bucket -> ... ()", "sum"))
     index = pdf.topk(k=num_samples, dim=-1).indices
     return index, normalized_pdf.gather(dim=-1, index=index)
@@ -53,10 +45,6 @@ class DistributionSampler:
         deterministic: bool,
         num_samples: int,
     ):
-    # tuple[
-    #     Int64[Tensor, "*batch sample"],  # index
-    #     Float[Tensor, "*batch sample"],  # probability density
-    # ]
         """Sample from the given probability distribution. Return sampled indices and
         their corresponding probability densities.
         """
@@ -243,8 +231,8 @@ class GaussianLifterV2(BaseLifter):
 
     def forward(self, metas, **kwargs):
         if self.initialize_backbone is not None:
-            b, n = kwargs["imgs"].shape[:2]
-            initialize_input = kwargs["imgs"].flatten(0, 1)
+            b, n = metas["imgs"].shape[:2]
+            initialize_input = metas["imgs"].flatten(0, 1)
             if self.initializer_img_downsample is not None:
                 initialize_input = nn.functional.interpolate(
                     initialize_input, scale_factor=self.initializer_img_downsample, 
@@ -252,7 +240,7 @@ class GaussianLifterV2(BaseLifter):
             secondfpn_out = self.initialize_backbone(initialize_input)
             secondfpn_out = secondfpn_out.unflatten(0, (b, n))
         else:
-            secondfpn_out = kwargs["secondfpn_out"]
+            secondfpn_out = metas["secondfpn_out"]
         
         b, n, _, h, w = secondfpn_out.shape
         feature = rearrange(secondfpn_out, 'b n c h w -> b n h w c')
@@ -283,9 +271,10 @@ class GaussianLifterV2(BaseLifter):
 
             occupancy = metas["occ_label"]
             valid_mask = metas["occ_cam_mask"]
-            anchor_occ = torch.stack([occ[idx[..., 0], idx[..., 1], idx[..., 2]] for occ, idx in zip(occupancy, anchor_idx)])
+
+            anchor_occ = torch.stack([occ[idx[..., 0].long(), idx[..., 1].long(), idx[..., 2].long()] for occ, idx in zip(occupancy, anchor_idx)])
             anchor_occ[oob_mask] = self.empty_label
-            anchor_valid = torch.stack([occ[idx[..., 0], idx[..., 1], idx[..., 2]] for occ, idx in zip(valid_mask, anchor_idx)])
+            anchor_valid = torch.stack([occ[idx[..., 0].long(), idx[..., 1].long(), idx[..., 2].long()] for occ, idx in zip(valid_mask, anchor_idx)])
             anchor_valid[oob_mask] = False
             anchor_gt = (anchor_occ != self.empty_label) & anchor_valid
             anchor_gt = torch.cat([anchor_gt, ~torch.any(anchor_gt, dim=-1, keepdim=True)], dim=-1)
@@ -295,7 +284,6 @@ class GaussianLifterV2(BaseLifter):
         index, pdf_i = self.sampler.sample(pdfs, deterministic, self.anchors_per_pixel) # b, n, h, w, a
         disable_mask = (pdfs.argmax(dim=-1, keepdim=True) == self.num_samples).expand(
             -1, -1, -1, -1, self.anchors_per_pixel)
-        # disable_mask = index == self.num_samples
         sampled_anchor = self.sampler.gather(index.clamp(max=(self.num_samples-1)), anchor_pts) # b, n, h, w, a, 3
         
         anchor_xyz = []
@@ -340,7 +328,7 @@ class GaussianLifterV2(BaseLifter):
                         scan, 
                         torch.tensor([scan.shape[0]], device=scan.device, dtype=torch.int),
                         torch.tensor([self.num_anchor], device=scan.device, dtype=torch.int))
-                scan = scan[scanidx, :]
+                scan = scan[scanidx.long(), :]
             
             anchor_xyz.append(scan)
 

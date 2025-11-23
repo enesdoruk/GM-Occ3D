@@ -53,7 +53,6 @@ class NuscOCCDataset(NuScenesDataset):
         return example
 
     def get_data_info(self, index):
-
         info = self.data_infos[index]
         
         # standard protocal modified from SECOND.Pytorch
@@ -157,7 +156,7 @@ class NuscOCCDataset(NuScenesDataset):
         eval_results = {}
         
         ''' evaluate SC '''
-        evaluation_semantic = sum(results['SC_metric'])
+        evaluation_semantic = sum(results['SC'])
         ious = cm_to_ious(evaluation_semantic)
         res_table, res_dic = format_SC_results(ious[1:], return_dic=True)
         for key, val in res_dic.items():
@@ -167,7 +166,7 @@ class NuscOCCDataset(NuScenesDataset):
             logger.info(res_table)
         
         ''' evaluate SSC '''
-        evaluation_semantic = sum(results['SSC_metric'])
+        evaluation_semantic = sum(results['SSC'])
         ious = cm_to_ious(evaluation_semantic)
         res_table, res_dic = format_SSC_results(ious, return_dic=True)
         for key, val in res_dic.items():
@@ -176,15 +175,4 @@ class NuscOCCDataset(NuScenesDataset):
             logger.info('SSC Evaluation')
             logger.info(res_table)
         
-        ''' evaluate SSC_fine '''
-        if 'SSC_metric_fine' in results.keys():
-            evaluation_semantic = sum(results['SSC_metric_fine'])
-            ious = cm_to_ious(evaluation_semantic)
-            res_table, res_dic = format_SSC_results(ious, return_dic=True)
-            for key, val in res_dic.items():
-                eval_results['SSC_fine_{}'.format(key)] = val
-            if logger is not None:
-                logger.info('SSC fine Evaluation')
-                logger.info(res_table)
-            
         return eval_results

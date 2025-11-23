@@ -68,16 +68,16 @@ LocalAggregateCUDA(
 		binningFunc,
 		imgFunc,
 		P, N,
-		pts.contiguous().data_ptr<float>(),
-		points_int.contiguous().data_ptr<int>(),
-		means3D.contiguous().data_ptr<float>(),
-		means3D_int.contiguous().data_ptr<int>(),
-		opacity.contiguous().data_ptr<float>(),
-		semantics.contiguous().data_ptr<float>(),
-		cov3D.contiguous().data_ptr<float>(),
-		radii.contiguous().data_ptr<int>(),
+		pts.contiguous().data<float>(),
+		points_int.contiguous().data<int>(),
+		means3D.contiguous().data<float>(),
+		means3D_int.contiguous().data<int>(),
+		opacity.contiguous().data<float>(),
+		semantics.contiguous().data<float>(),
+		cov3D.contiguous().data<float>(),
+		radii.contiguous().data<int>(),
 		H, W, D,
-		out_logits.contiguous().data_ptr<float>());
+		out_logits.contiguous().data<float>());
 	
 	return std::make_tuple(rendered, out_logits, geomBuffer, binningBuffer, imgBuffer);
 }
@@ -107,43 +107,24 @@ LocalAggregateBackwardCUDA(
 
 	torch::Tensor voxel2pts = torch::full({H * W * D}, -1, means3D.options().dtype(torch::kInt32));
   
-	// LocalAggregator::Aggregator::backward(
-	// 	P, R, N,
-	// 	H, W, D,
-	// 	reinterpret_cast<char*>(geomBuffer.contiguous().data_ptr()),
-	// 	reinterpret_cast<char*>(binningBuffer.contiguous().data_ptr()),
-	// 	reinterpret_cast<char*>(imageBuffer.contiguous().data_ptr()),
-    //     points_int.contiguous().data<int>(),
-	// 	voxel2pts.contiguous().data<int>(),
-	// 	pts.contiguous().data<float>(),
-	// 	means3D.contiguous().data<float>(),
-	// 	cov3D.contiguous().data<float>(),
-	// 	opacities.contiguous().data<float>(),
-	// 	semantics.contiguous().data<float>(),
-	// 	out_grad.contiguous().data<float>(),
-	// 	means3D_grad.contiguous().data<float>(),
-	// 	opacity_grad.contiguous().data<float>(),
-	// 	semantics_grad.contiguous().data<float>(),
-	// 	cov3D_grad.contiguous().data<float>());
-
 	LocalAggregator::Aggregator::backward(
-    P, R, N,
-    H, W, D,
-    reinterpret_cast<char*>(geomBuffer.contiguous().data_ptr<float>()),
-    reinterpret_cast<char*>(binningBuffer.contiguous().data_ptr<int>()),
-    reinterpret_cast<char*>(imageBuffer.contiguous().data_ptr<float>()),
-    points_int.contiguous().data_ptr<int>(),
-    voxel2pts.contiguous().data_ptr<int>(),
-    pts.contiguous().data_ptr<float>(),
-    means3D.contiguous().data_ptr<float>(),
-    cov3D.contiguous().data_ptr<float>(),
-    opacities.contiguous().data_ptr<float>(),
-    semantics.contiguous().data_ptr<float>(),
-    out_grad.contiguous().data_ptr<float>(),
-    means3D_grad.contiguous().data_ptr<float>(),
-    opacity_grad.contiguous().data_ptr<float>(),
-    semantics_grad.contiguous().data_ptr<float>(),
-    cov3D_grad.contiguous().data_ptr<float>()
-);
+		P, R, N,
+		H, W, D,
+		reinterpret_cast<char*>(geomBuffer.contiguous().data_ptr()),
+		reinterpret_cast<char*>(binningBuffer.contiguous().data_ptr()),
+		reinterpret_cast<char*>(imageBuffer.contiguous().data_ptr()),
+        points_int.contiguous().data<int>(),
+		voxel2pts.contiguous().data<int>(),
+		pts.contiguous().data<float>(),
+		means3D.contiguous().data<float>(),
+		cov3D.contiguous().data<float>(),
+		opacities.contiguous().data<float>(),
+		semantics.contiguous().data<float>(),
+		out_grad.contiguous().data<float>(),
+		means3D_grad.contiguous().data<float>(),
+		opacity_grad.contiguous().data<float>(),
+		semantics_grad.contiguous().data<float>(),
+		cov3D_grad.contiguous().data<float>());
+
 	return std::make_tuple(means3D_grad, opacity_grad, semantics_grad, cov3D_grad);
 }

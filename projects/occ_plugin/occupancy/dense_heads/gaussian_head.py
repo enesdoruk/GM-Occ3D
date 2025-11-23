@@ -272,11 +272,13 @@ class GaussianHead(BaseTaskHead):
             final_occ= final_prediction,
             gaussian= representation[-1]['gaussian'],
             gaussians= [r['gaussian'] for r in representation])
-        
-        
+                
+        return output
+    
+    
+    def loss_gauss(self, output, **kwargs):
         loss = dict(loss = self.loss(output)[0])
         output.update(loss)
-        
         return output
             
         

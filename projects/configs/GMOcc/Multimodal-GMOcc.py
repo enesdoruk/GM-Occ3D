@@ -14,7 +14,8 @@ plugin_dir = "projects/occ_plugin/"
 img_norm_cfg = None
 occ_path = "./data/nuScenes-Occupancy"
 depth_gt_path = './data/depth_gt'
-train_ann_file = "./data/nuscenes/nuscenes_occ_infos_train.pkl"
+# train_ann_file = "./data/nuscenes/nuscenes_occ_infos_train.pkl"
+train_ann_file = "./data/nuscenes/nuscenes_occ_infos_val.pkl"
 val_ann_file = "./data/nuscenes/nuscenes_occ_infos_val.pkl"
 socc_path = "/home/edoruk/dataset/nuscenes_dataset/nuscenes_occ/samples"
 
@@ -278,9 +279,8 @@ train_pipeline = [
         bda_aug_conf=bda_aug_conf,
         classes=class_names,
         input_modality=input_modality),
-    dict(type='LoadOccupancy', to_float32=True, use_semantic=True, occ_path=occ_path, grid_size=occ_size, use_vel=False,
+    dict(type='LoadOccupancy', to_float32=True, use_semantic=True, use_ego=False, occ_path=occ_path, socc_path=socc_path, grid_size=occ_size, use_vel=False,
             unoccupied=empty_idx, pc_range=point_cloud_range, cal_visible=visible_mask),
-    dict(type="LoadOccupancySurroundOcc", occ_path=socc_path, semantic=True, use_ego=False),
     dict(type='OccDefaultFormatBundle3D', class_names=class_names),
     dict(type='CustomOccCollect3D', keys=['img_inputs', 'gt_occ', 'points'],
           meta_keys=['pc_range', 'occ_size', 'scene_token', 'lidar_token', 'occ_xyz', 'occ_label', 'occ_cam_mask', 'projection_mat', 'focal_positions', 'cam_positions']),
@@ -303,9 +303,8 @@ test_pipeline = [
         classes=class_names,
         input_modality=input_modality,
         is_train=False),
-    dict(type='LoadOccupancy', to_float32=True, use_semantic=True, occ_path=occ_path, grid_size=occ_size, use_vel=False,
+    dict(type='LoadOccupancy', to_float32=True, use_semantic=True, occ_path=occ_path, socc_path=socc_path,grid_size=occ_size, use_vel=False,
         unoccupied=empty_idx, pc_range=point_cloud_range, cal_visible=visible_mask),
-    dict(type="LoadOccupancySurroundOcc", occ_path=socc_path, semantic=True, use_ego=False),
     dict(type='OccDefaultFormatBundle3D', class_names=class_names, with_label=False), 
     dict(type='CustomOccCollect3D', keys=['img_inputs', 'gt_occ', 'points'],
           meta_keys=['pc_range', 'occ_size', 'scene_token', 'lidar_token', 'occ_xyz', 'occ_label', 'occ_cam_mask', 'projection_mat', 'focal_positions', 'cam_positions']),
@@ -366,9 +365,9 @@ lr_config = dict(
     warmup_ratio=1.0 / 3,
     min_lr_ratio=1e-3)
 
-runner = dict(type='EpochBasedRunner', max_epochs=20)
+runner = dict(type='EpochBasedRunner', max_epochs=2)
 evaluation = dict(
-    interval=20,
+    interval=1,
     pipeline=test_pipeline,
     # save_best='SSC_mean',
     save_best='SSC_fine_mean',

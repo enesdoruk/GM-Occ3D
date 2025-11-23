@@ -1,3 +1,5 @@
 # ninja log v5
 1	11918	1763664572672115578	/home/edoruk/OccMamba/projects/occ_plugin/occupancy/backbones/gaussian_encoder/ops/build/temp.linux-x86_64-3.9/src/deformable_aggregation_cuda.o	c42da79c12b99683
 0	13973	1763664574666110123	/home/edoruk/OccMamba/projects/occ_plugin/occupancy/backbones/gaussian_encoder/ops/build/temp.linux-x86_64-3.9/src/deformable_aggregation.o	4c1b71c5932e694b
+3	11731	1763725607099709297	/home/edoruk/GMOcc/projects/occ_plugin/occupancy/backbones/gaussian_encoder/ops/build/temp.linux-x86_64-3.9/src/deformable_aggregation_cuda.o	2ad495ccf512667c
+3	13639	1763725608947715565	/home/edoruk/GMOcc/projects/occ_plugin/occupancy/backbones/gaussian_encoder/ops/build/temp.linux-x86_64-3.9/src/deformable_aggregation.o	70854bddaa0b32d9

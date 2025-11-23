@@ -17,11 +17,13 @@ import copy
 @PIPELINES.register_module()
 class LoadOccupancy(object):
 
-    def __init__(self, to_float32=True, use_semantic=False, occ_path=None, grid_size=[512, 512, 40], unoccupied=0,
-            pc_range=[-51.2, -51.2, -5.0, 51.2, 51.2, 3.0], gt_resize_ratio=1, cal_visible=False, use_vel=False):
+    def __init__(self, to_float32=True, use_semantic=False, occ_path=None, socc_path=None, grid_size=[512, 512, 40], unoccupied=0,
+            pc_range=[-51.2, -51.2, -5.0, 51.2, 51.2, 3.0], gt_resize_ratio=1, cal_visible=False, use_vel=False,
+            use_ego=False, use_sweeps=False, perturb=False):
         self.to_float32 = to_float32
         self.use_semantic = use_semantic
         self.occ_path = occ_path
+        self.socc_path = socc_path
         self.cal_visible = cal_visible
 
         self.grid_size = np.array(grid_size)
@@ -30,6 +32,30 @@ class LoadOccupancy(object):
         self.voxel_size = (self.pc_range[3:] - self.pc_range[:3]) / self.grid_size
         self.gt_resize_ratio = gt_resize_ratio
         self.use_vel = use_vel
+        
+        self.use_ego = use_ego
+        assert self.use_semantic and (not use_ego)
+        self.use_sweeps = use_sweeps
+        self.perturb = perturb
+        
+        xyz = self.get_meshgrid([-50, -50, -5.0, 50, 50, 3.0], [200, 200, 16], 0.5)
+        self.xyz = np.concatenate([xyz, np.ones_like(xyz[..., :1])], axis=-1) # x, y, z, 4
+        
+    
+    def get_meshgrid(self, ranges, grid, reso):
+        xxx = torch.arange(grid[0], dtype=torch.float) * reso + 0.5 * reso + ranges[0]
+        yyy = torch.arange(grid[1], dtype=torch.float) * reso + 0.5 * reso + ranges[1]
+        zzz = torch.arange(grid[2], dtype=torch.float) * reso + 0.5 * reso + ranges[2]
+
+        xxx = xxx[:, None, None].expand(*grid)
+        yyy = yyy[None, :, None].expand(*grid)
+        zzz = zzz[None, None, :].expand(*grid)
+
+        xyz = torch.stack([
+            xxx, yyy, zzz
+        ], dim=-1).numpy()
+        return xyz # x, y, z, 3
+
     
     def __call__(self, results):
         rel_path = 'scene_{0}/occupancy/{1}.npy'.format(results['scene_token'], results['lidar_token'])
@@ -99,8 +125,6 @@ class LoadOccupancy(object):
                 visible_mask = visible_mask | voxel_img
                 results['img_visible_mask'] = voxel_img
 
-
-            # lidar branch
             if 'points' in results.keys():
                 pts = results['points'].tensor.cpu().numpy()[:, :3]
                 pts_in_range = ((pts>=self.pc_range[:3]) & (pts<self.pc_range[3:])).sum(1)==3
@@ -114,6 +138,37 @@ class LoadOccupancy(object):
                 results['lidar_visible_mask'] = voxel_pts
 
             results['visible_mask'] = visible_mask
+        
+        if os.path.exists(os.path.join(self.socc_path, results['pts_filename'].split('/')[-1]+'.npy')):
+            label = np.load(os.path.join(self.socc_path, results['pts_filename'].split('/')[-1]+'.npy'))
+
+            new_label = np.ones((200, 200, 16), dtype=np.int64) * 17
+            new_label[label[:, 0], label[:, 1], label[:, 2]] = label[:, 3]
+
+            mask = new_label != 0
+
+            results['occ_label'] = new_label if self.use_semantic else new_label != 17
+            results['occ_cam_mask'] = mask
+        elif self.use_sweeps:
+            new_label = np.ones((200, 200, 16), dtype=np.int64) * 17
+            mask = new_label != 0
+            results['occ_label'] = new_label if self.use_semantic else new_label != 17
+            results['occ_cam_mask'] = mask
+        else:
+            raise NotImplementedError
+        
+        xyz = self.xyz.copy()
+        if getattr(self, "perturb", False):
+            norm_distribution = np.clip(np.random.randn(*xyz.shape[:-1], 3) / 6, -0.5, 0.5)
+            xyz[..., :3] = xyz[..., :3] + norm_distribution * 0.49
+
+        if not self.use_ego:
+            occ_xyz = xyz[..., :3]
+        else:
+            ego2lidar = np.linalg.inv(results['ego2lidar']) # 4, 4
+            occ_xyz = ego2lidar[None, None, None, ...] @ xyz[..., None] # x, y, z, 4, 1
+            occ_xyz = np.squeeze(occ_xyz, -1)[..., :3]
+        results['occ_xyz'] = occ_xyz
 
         return results
 

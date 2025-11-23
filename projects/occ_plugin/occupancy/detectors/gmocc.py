@@ -17,7 +17,9 @@ from projects.occ_plugin.utils import SPConvVoxelization
 
 import importlib
 importlib.import_module('projects.occ_plugin.occupancy.lifter.gaussian_lifter')
+importlib.import_module('projects.occ_plugin.occupancy.lifter.gaussian_lifter_v2')
 importlib.import_module('projects.occ_plugin.occupancy.backbones.gaussian_encoder.anchor_encoder_module')
+importlib.import_module('projects.occ_plugin.occupancy.backbones.gaussian_encoder.deformable_module')
 
 
 @DETECTORS.register_module()
@@ -134,21 +136,27 @@ class GMOcc(BEVDepth):
         occ_cam_mask= torch.stack([torch.tensor(t['occ_cam_mask']).to(points[0].device) for t in img_metas], dim=0)
         occ_label= torch.stack([torch.tensor(t['occ_label']).to(points[0].device) for t in img_metas], dim=0)
         occ_xyz= torch.stack([torch.tensor(t['occ_xyz']).to(points[0].device) for t in img_metas], dim=0)
-      
+
+        img_shapes = [tuple(img_feats[0].shape[-2:]) for _ in range(img[0].shape[1])]
+        image_wh = torch.tensor(np.ascontiguousarray(np.array(img_shapes, dtype=np.float32)[:, :2][:, ::-1])).to(points[0].device).unsqueeze(0)
+        
         gauss_metas = dict(cam_positions= cam_positions,
                           focal_positions= focal_positions,
                           projection_mat= projection_mat,
                           occ_cam_mask= occ_cam_mask,
                           occ_label= occ_label,
-                          occ_xyz= occ_xyz)
-        
-        lifter = self.gauss_lifter(img_feats)
+                          occ_xyz= occ_xyz,
+                          secondfpn_out=img_feats[0],
+                          image_wh=image_wh)
+
+
+        lifter = self.gauss_lifter(gauss_metas)
         
         gauss_feats = self.gauss_encoder(lifter['representation'], 
                                         lifter['rep_features'], 
                                         img_feats, gauss_metas)
 
-        return (gauss_metas, gauss_feats, img_feats, pts_feats)
+        return (gauss_metas, gauss_feats, img_feats, pts_feats, lifter)
     
     
     def forward_train(self,
@@ -160,14 +168,14 @@ class GMOcc(BEVDepth):
             visible_mask=None,
             **kwargs,
         ):
-
-        gauss_metas, gauss_feats, img_feats, pts_feats = self.extract_feat(points, img_inputs, img_metas)
-                    
+ 
+        gauss_metas, gauss_feats, _, _, _ = self.extract_feat(points, img_inputs, img_metas)
+          
         output = self.head(gauss_feats['representation'], gauss_metas)
-                
-        losses = dict()
-        losses['loss'] = output['loss']
-                
+        
+        loss = self.head.loss_gauss(output)['loss']
+        losses = dict(loss = loss)
+        
         if self.loss_norm:
             for loss_key in losses.keys():
                 if loss_key.startswith('loss'):
@@ -182,7 +190,7 @@ class GMOcc(BEVDepth):
         
         if self.record_time:
             logging_latencies()
-        
+             
         return losses
         
     def forward_test(self,
@@ -193,6 +201,7 @@ class GMOcc(BEVDepth):
             visible_mask=None,
             **kwargs,
         ):
+        
         return self.simple_test(img_metas, img_inputs, points, gt_occ=gt_occ, visible_mask=visible_mask, **kwargs)
     
     def simple_test(self, img_metas, img=None, points=None, rescale=False, points_occ=None, 
@@ -200,75 +209,123 @@ class GMOcc(BEVDepth):
         
         start_time = time.time()
 
-        gauss_metas, gauss_feats, img_feats, pts_feats = self.extract_feat(points, img, img_metas)
+        gauss_metas, gauss_feats, _, _, lifter_metas = self.extract_feat(points, img, img_metas)
 
         output = self.head(gauss_feats['representation'], gauss_metas)
 
         end_time = time.time()
-
-        pred_c = output['output_voxels'][0]
-        SC_metric, _ = self.evaluation_semantic(pred_c, gt_occ, eval_type='SC', visible_mask=visible_mask)
-        SSC_metric, SSC_occ_metric = self.evaluation_semantic(pred_c, gt_occ, eval_type='SSC', visible_mask=visible_mask)
-
-        pred_f = None
-        SSC_metric_fine = None
-        if output['output_voxels_fine'] is not None:
-            if output['output_coords_fine'] is not None:
-                fine_pred = output['output_voxels_fine'][0]  # N ncls
-                fine_coord = output['output_coords_fine'][0]  # 3 N
-                pred_f = self.empty_idx * torch.ones_like(gt_occ)[:, None].repeat(1, fine_pred.shape[1], 1, 1, 1).float()
-                pred_f[:, :, fine_coord[0], fine_coord[1], fine_coord[2]] = fine_pred.permute(1, 0)[None]
-            else:
-                pred_f = output['output_voxels_fine'][0]
-            SC_metric, _ = self.evaluation_semantic(pred_f, gt_occ, eval_type='SC', visible_mask=visible_mask)
-            SSC_metric_fine, SSC_occ_metric_fine = self.evaluation_semantic(pred_f, gt_occ, eval_type='SSC', visible_mask=visible_mask)
-
+        
+        result_dict = dict()
+        result_dict.update(gauss_metas)
+        result_dict.update(gauss_feats)  
+        result_dict.update(rep_features=lifter_metas['rep_features'])
+        result_dict.update(rep_features=lifter_metas['anchor_init'])  
+        result_dict.update(output)
+  
+        ious,occ_iou, miou, sc_metric, ssc_metric, ssc_occ_metric = self.evaluation_semantic(result_dict)
+       
         test_output = {
-            'SC_metric': SC_metric,
-            'SSC_metric': SSC_metric,
-            'pred_c': pred_c,
-            'pred_f': pred_f,
+            'IOU': ious,
+            'occ_IOU': occ_iou,
+            'mIOU': miou,
+            'SC': sc_metric,
+            'SSC': ssc_metric,
+            'SSC_occ': ssc_occ_metric,
             'time_use': end_time - start_time,
         }
-
-        if SSC_metric_fine is not None:
-            test_output['SSC_metric_fine'] = SSC_metric_fine
 
         return test_output
 
 
-    def evaluation_semantic(self, pred, gt, eval_type, visible_mask=None):
-        _, H, W, D = gt.shape
-        pred = F.interpolate(pred, size=[H, W, D], mode='trilinear', align_corners=False).contiguous()
-        pred = torch.argmax(pred[0], dim=0).cpu().numpy()
-        gt = gt[0].cpu().numpy()
-        gt = gt.astype(np.int)
+    def evaluation_semantic(self, result_dict):
+        class_indices = list(range(1, 17))
+        num_classes = len(class_indices)
+        empty_label = 17
+        label_str = ['barrier', 'bicycle', 'bus', 'car', 'construction_vehicle',
+                    'motorcycle', 'pedestrian', 'traffic_cone', 'trailer', 'truck',
+                    'driveable_surface', 'other_flat', 'sidewalk', 'terrain', 'manmade',
+                    'vegetation']
+            
+        # compute iou, precision, recall
+        for idx, pred in enumerate(result_dict['final_occ']):
+            output = pred
+            target = result_dict['sampled_label'][idx]
+            mask = result_dict['occ_mask'][idx].flatten()
+            
+            if mask is not None:
+                output = output[mask]
+                target = target[mask]
 
-        # ignore noise
-        noise_mask = gt != 255
+            total_seen = torch.zeros(num_classes+1)
+            total_correct = torch.zeros(num_classes+1)
+            total_positive = torch.zeros(num_classes+1)
+            
+            for i, c in enumerate(class_indices):
+                total_seen[i] += torch.sum(target == c).item()
+                total_correct[i] += torch.sum((target == c)
+                                                & (output == c)).item()
+                total_positive[i] += torch.sum(output == c).item()
+            
+            total_seen[-1] += torch.sum(target != empty_label).item()
+            total_correct[-1] += torch.sum((target != empty_label)
+                                                & (output != empty_label)).item()
+            total_positive[-1] += torch.sum(output != empty_label).item()
+        
+        ious = []
+        precs = []
+        recas = [] 
+        for i in range(num_classes):
+            if total_positive[i] == 0:
+                precs.append(0.)
+            else:
+                cur_prec = total_correct[i] / total_positive[i]
+                precs.append(cur_prec.item())
+            if total_seen[i] == 0:
+                ious.append(1)
+                recas.append(1)
+            else:
+                cur_iou = total_correct[i] / (total_seen[i]
+                                                   + total_positive[i]
+                                                   - total_correct[i])
+                cur_reca = total_correct[i] / total_seen[i]
+                ious.append(cur_iou.item())
+                recas.append(cur_reca)
+        miou = np.mean(ious)
+                
+        occ_iou = total_correct[-1] / (total_seen[-1]
+                                            + total_positive[-1]
+                                            - total_correct[-1])
+                
+        #SC metric
+        pred = result_dict['final_occ'][0]
+        gt = result_dict['sampled_label'][0]
+        mask = result_dict['occ_mask'][0].flatten()
+        valid_pred = pred[mask]
+        valid_gt = gt[mask]
+        pred_binary = torch.zeros_like(valid_pred)
+        gt_binary = torch.zeros_like(valid_gt)
+        pred_binary[valid_pred != empty_label] = 1
+        gt_binary[valid_gt != empty_label] = 1
+        
+        gt_binary = gt_binary.cpu().numpy().astype(np.int)
+        pred_binary = pred_binary.cpu().numpy()
+        noise_mask = gt_binary != 255
+        
+        sc_metric = fast_hist(pred_binary[noise_mask], gt_binary[noise_mask], max_label=2)
+        
+        #SSC metric
+        pred = pred.cpu().numpy()
+        gt = gt.cpu().numpy().astype(np.int)
+        if mask is not None:
+            mask = mask.cpu().numpy()
+            noise_mask = gt != 255
+            mask = noise_mask & (mask!=0)
+            ssc_occ_metric = fast_hist(pred[mask], gt[mask], max_label=num_classes+1)
 
-        if eval_type == 'SC':
-            # 0 1 split
-            gt[gt != self.empty_idx] = 1
-            pred[pred != self.empty_idx] = 1
-            return fast_hist(pred[noise_mask], gt[noise_mask], max_label=2), None
-
-        if self.dataset == 'kitti':
-            max_label = 20
-        elif self.dataset == 'poss':
-            max_label = 12
-        else:
-            max_label = 17
-
-        if eval_type == 'SSC':
-            hist_occ = None
-            if visible_mask is not None:
-                visible_mask = visible_mask[0].cpu().numpy()
-                mask = noise_mask & (visible_mask!=0)
-                hist_occ = fast_hist(pred[mask], gt[mask], max_label=max_label)
-
-            hist = fast_hist(pred[noise_mask], gt[noise_mask], max_label=max_label)
-            return hist, hist_occ
+        ssc_metric = fast_hist(pred[noise_mask], gt[noise_mask], max_label=num_classes+1)
+        
+        return ious, occ_iou, miou, sc_metric, ssc_metric, ssc_occ_metric
+        
     
     def forward_dummy(self,
             points=None,
@@ -280,16 +337,8 @@ class GMOcc(BEVDepth):
 
         gauss_metas, gauss_feats, img_feats, pts_feats = self.extract_feat(points, img_inputs, img_metas)
 
-        transform = img_inputs[1:8] if img_inputs is not None else None
-        output = self.pts_bbox_head(
-            voxel_feats=voxel_feats,
-            points=points_occ,
-            img_metas=img_metas,
-            img_feats=img_feats,
-            pts_feats=pts_feats,
-            transform=transform,
-        )
-        
+        output = self.head(gauss_feats['representation'], gauss_metas)
+
         return output
     
     

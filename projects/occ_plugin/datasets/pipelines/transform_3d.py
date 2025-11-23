@@ -732,7 +732,7 @@ class LoadOccupancySurroundOcc(object):
         return xyz # x, y, z, 3
 
     def __call__(self, results):
-        
+        import pdb; pdb.set_trace()
         label_file = os.path.join(self.occ_path, results['pts_filename'].split('/')[-1]+'.npy')
         if os.path.exists(label_file):
             label = np.load(label_file)
